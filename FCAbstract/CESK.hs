@@ -6,7 +6,7 @@
 module FCAbstract.CESK where
 
 import GhcPlugins
-import Data.Map as Map
+import qualified Data.Map as Map
 import Data.Map ((!), Map, member)
 import Data.IORef
 import System.IO.Unsafe
@@ -37,51 +37,65 @@ type Val = CoreExpr
 
 type Addr = Int
 
--- TODO: not require env when Val isn't a function
-type Closure = (Val, Env)
+data Stored = StVal Val Env
+            | StThunk Val Env
+            deriving Show
+
 type Env = Map Var Addr
-type Store = Map Addr Closure
+
+data Store = Store (Map Addr Stored) Addr
+           deriving Show
 
 data Continuation = Kmt
                     | Kar CoreExpr Env Continuation
-                    | Kfn Val Env Continuation
+                    | Kst Addr Continuation
+                      -- store result of thunk in place of variable
                     deriving Show
 
 data CESK = CESK {
   control :: CoreExpr,
   env :: Env,
   store :: Store,
-  kontinuation :: Continuation
+  kont :: Continuation
   } deriving Show
 
 inject :: CoreExpr -> CESK
-inject e = CESK e Map.empty Map.empty Kmt
+inject e = CESK e Map.empty (Store Map.empty 0) Kmt
 
 step :: CESK -> Either Val CESK
 --step (CESK c e s Kmt) = Left c
-step (CESK (Var ident) e s k) =
+step (CESK (Var ident) e s@(Store ss _) k) =
   case Map.lookup ident e of
-    Just addr -> let (v, e') = (s ! addr) in
-      Right (CESK v e' s k)
+    Just addr ->
+      case ss ! addr of
+        StVal v e' -> Right (CESK v e' s k)
+        StThunk v e' -> Right (CESK v e' s (Kst addr k))
     Nothing -> error ("unbound variable: " ++ showSDoc (ppr ident))
 step (CESK (Lit _) e s k) = NOT_IMPL()
 step (CESK (App fn arg) e s k) =
   Right (CESK fn e s (Kar arg e k))
-step (CESK l@(Lam formal body) e s (Kar c e' k)) =
-  Right (CESK c e' s (Kfn l e k))
-step (CESK c e s (Kfn (Lam formal body) e' k)) =
+step (CESK c e (Store ss maxAddr) (Kst addr k)) =
+  Right (CESK c e s' k)
+  where s' = Store (Map.insert addr (StVal c e) ss) maxAddr
+step (CESK (Lam formal body) e (Store ss addr) (Kar v e' k)) =
   Right (CESK body e'' s' k)
   where
-    -- TODO: do more than hope birthday paradox doesn't happen
-    addr = genInt ()
-    e'' = Map.insert formal addr e'
-    s' = Map.insert addr (c, e) s
+    e'' = Map.insert formal addr e
+    s' = Store (Map.insert addr (StThunk v e') ss) (addr + 1)
 step (CESK (Let (NonRec var val) expr) e s k) =
-  Right (CESK val e s (Kfn (Lam var expr) e k))
+  -- punt and desugar
+  Right (CESK (App (Lam var expr) val) e s k)
+step (CESK (Let (Rec binds) expr) e s@(Store ss addr) k) =
+  Right (CESK expr e' s' k)
+  where
+    addrsVarsVals = zip3 [addr..] (map fst binds) (map snd binds)
+    e' = foldl (\m (a, var, val) -> Map.insert var a m) e addrsVarsVals
+    s' = foldl (\(Store m _) (a, var, val) ->
+                 Store (Map.insert a (StThunk val e') m) (a + 1))
+         s addrsVarsVals
 step (CESK (Case _ _ _ _) e s k) = NOT_IMPL()
 step (CESK (Cast _ _) e s k) = NOT_IMPL()
-step (CESK t@(Type _) e s (Kar c e' k)) =
-  Right (CESK c e' s (Kfn t e k))
+step (CESK (Type _) e s k) = NOT_IMPL()
 step (CESK (Coercion _) e s k) = NOT_IMPL()
 step (CESK c _ _ Kmt) = Left c
 

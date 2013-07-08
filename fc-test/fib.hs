@@ -10,9 +10,11 @@ dummy n = let f x = x in f n
 
 data Foo = Bar
 
-stupid :: () -> () -> ()
-stupid = true (not true) true
+stupid :: Int -> Int
+stupid = y (true true) 2
   where
+    id x = x
+    y f = f (y f)
     true a b = a
     false a b = b
     not m = m false true

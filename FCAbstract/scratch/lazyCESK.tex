@@ -1,0 +1,95 @@
+\documentclass[12pt]{article}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage[usenames]{color}
+\usepackage{graphicx}
+\usepackage{upgreek}
+
+\newcommand{\textop}[1]{\mathop{\text{#1}}}
+
+\begin{document}
+
+\section{CESK}
+\begin{tabular}{l | r}
+  \multicolumn{2}{c}{$\varsigma \longmapsto_{CESK} \varsigma'$} \\
+  \hline
+
+  $\langle x, \rho, \sigma, \kappa \rangle$ &
+  $\langle v, \rho', \sigma, \kappa \rangle \textop{where}
+  \sigma(\rho(x)) = (v, \rho')$ \\
+
+  $\langle \texttt{(}e_0 e_1\texttt{)}, \rho, \sigma, \kappa \rangle$ &
+  $\langle e_0, \rho, \sigma, \textbf{ar}(e_1, \rho, \kappa)\rangle $ \\
+
+  $\langle v, \rho, \sigma, \textbf{ar}(e, \rho', \kappa) \rangle $ &
+  $\langle e, \rho', \sigma, \textbf{fn}(v, \rho, \kappa) \rangle $ \\
+
+  $\langle v, \rho, \sigma,
+  \textbf{fn}(\texttt{(\({\uplambda x.e}\))}, \rho', \kappa) \rangle$ &
+  $\langle e, \rho'[x \mapsto a],
+  \sigma[a \mapsto (v, \rho)], \kappa \rangle$ \\
+
+  &
+  $\textop{where} a \notin dom(\sigma)$ \\
+
+  \hline
+\end{tabular}
+
+\begin{array}{r l l l l}
+ \varsigma &\in& \Sigma &=& Exp \times Env \times Store \times Kont \\
+ \rho &\in& Env &=& Var \rightarrow_\text{fin} Addr \\
+ \sigma &\in& Store &=& Addr \rightarrow_\text{fin} Storable \\
+ s &\in& Storable &=& Val \times Env \\
+ a, b, c &\in& Addr && \text{an infinite set.}
+\end{array}
+
+\section{Lazy CESK}
+
+\begin{tabular}{l | r}
+  \multicolumn{2}{c}{$\varsigma \longmapsto_{Lazy CESK} \varsigma'$} \\
+  \hline
+
+  $\langle x, \rho, \sigma, \kappa \rangle$ &
+  $\langle v, \rho', \sigma, \kappa \rangle \textop{where}
+  \sigma(\rho(x)) = (v, \rho')$ \\
+
+  $\langle x, \rho, \sigma, \kappa \rangle$ &
+  $\langle v, \rho', \sigma, \textbf{st}(a, \kappa)
+  \rangle \textop{where} \sigma(a = \rho(x)) = \boldsymbol\theta(v, \rho')$ \\
+
+  $\langle \texttt{(}e_0 e_1\texttt{)}, \rho, \sigma, \kappa \rangle$ &
+  $\langle e_0, \rho, \sigma, \textbf{ar}(e_1, \rho, \kappa)\rangle $ \\
+
+  $\langle x, \rho, \sigma, \textbf{st}(a, \kappa) \rangle$ &
+  $\langle x, \rho, \sigma[a \mapsto \boldsymbol\epsilon(x, \rho)], \kappa \rangle$ \\
+
+  $\langle \texttt{(\({\uplambda x.e}\))}, \rho, \sigma,
+  \textbf{ar}(v, \rho', \kappa) \rangle$ &
+  $\langle e, \rho[x \mapsto a],
+  \sigma[a \mapsto \boldsymbol\theta(v, \rho')], \kappa \rangle$ \\
+
+  &
+  $\textop{where} a \notin dom(\sigma)$ \\
+
+  \hline
+\end{tabular}
+
+\begin{array}{r l l c l}
+ \varsigma &\in& \Sigma &=& Exp \times Env \times Store \times Kont \\
+ \rho &\in& Env &=& Var \rightarrow_\text{fin} Addr \\
+ \sigma &\in& Store &=& Addr \rightarrow_\text{fin} Storable \\
+ s &\in& Storable &::=& \boldsymbol\theta(v, \rho) \\
+ &&&\vert& \boldsymbol\epsilon(v, \rho) \\
+ \kappa &\in& Kont &::=& \textbf{mt} \\
+ &&&\vert& \textbf{ar}(e, \rho, \kappa) \\
+ &&&\vert& \textbf{st}(a, \kappa) \\
+ a, b, c &\in& Addr && \text{an infinite set.}
+\end{array}
+
+\vspace{1em}
+
+When evaluated, the thunk $\boldsymbol\theta(v, \rho)$ is replaced in the store with the evaluated version $\boldsymbol\epsilon(v', \rho')$.
+
+\end{document}
