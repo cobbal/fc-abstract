@@ -15,15 +15,34 @@ install _ todo = do
   putMsgS "Hello!"
   return (CoreDoPluginPass "Say name" pass : todo)
 
+pprs :: Outputable a => a -> String
+pprs = showSDoc . ppr
+
 pass :: ModGuts -> CoreM ModGuts
-pass = bindsOnlyPass (mapM printBind)
-  where printBind :: CoreBind -> CoreM CoreBind
-        printBind bndr@(NonRec b e)
-          | occNameString (nameOccName (varName b)) == "stupid" = do
-            putMsgS "I FOUND STUPID!"
-            putMsgS $ "binding named " ++ showSDoc (ppr bndr)
-            putMsgS $ "evaled to " ++ showSDoc (ppr (CESK.eval e))
-            return bndr
-        printBind bndr = do
-          putMsgS $ "binding named " ++ showSDoc (ppr bndr)
-          return bndr
+pass guts = do
+  mapM_ tyConFun (mg_tcs guts)
+  newBinds <- mapM printBind (mg_binds guts)
+  return $ guts { mg_binds = newBinds }
+  where
+    printBind :: CoreBind -> CoreM CoreBind
+    printBind bndr@(NonRec b e)
+      | occNameString (nameOccName (varName b)) == "stupid" = do
+        putMsgS "I FOUND STUPID!"
+        putMsgS $ "binding named " ++ pprs bndr
+        putMsgS $ "evaled to " ++ pprs (CESK.eval e)
+        return bndr
+    printBind bndr = do
+      putMsgS $ "binding named " ++ pprs bndr
+      return bndr
+    tyConFun :: TyCon -> CoreM ()
+    tyConFun tc = do
+      putMsgS "--- tycon ---"
+      putMsgS $ pprs tc
+      putMsgS $ "name = " ++ pprs (tyConName tc)
+      putMsgS $ "kind = " ++ pprs (tyConKind tc)
+      putMsgS $ "unique = " ++ pprs (tyConUnique tc)
+      putMsgS $ "tyVars = " ++ pprs (tyConTyVars tc)
+      putMsgS $ "dataCons = " ++ pprs (tyConDataCons tc)
+      putMsgS $ "stupidTheta = " ++ pprs (tyConStupidTheta tc)
+      putMsgS $ "parent = " ++ pprs (tyConParent tc)
+      putMsgS "-------------"

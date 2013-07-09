@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE PatternGuards #-}
 {-# OPTIONS_GHC -fno-cse -O0 #-}
 
 #define NOT_IMPL() (error ("Not implemented error at " ++ __FILE__ ++ ":" ++ show __LINE__))
@@ -14,8 +15,8 @@ import System.IO.Unsafe
 instance OutputableBndr b => Show (Expr b) where
   show = showSDoc . ppr
 
-unsafeLog :: Show a => a -> a
-unsafeLog x = unsafePerformIO (putStrLn (show x)) `seq` x
+unsafeLog :: Show a => String -> a -> a
+unsafeLog m x = unsafePerformIO (putStrLn (m ++ show x)) `seq` x
 
 counter :: IORef Int
 counter = unsafePerformIO $ do
@@ -64,13 +65,12 @@ inject e = CESK e Map.empty (Store Map.empty 0) Kmt
 
 step :: CESK -> Either Val CESK
 --step (CESK c e s Kmt) = Left c
-step (CESK (Var ident) e s@(Store ss _) k) =
-  case Map.lookup ident e of
-    Just addr ->
-      case ss ! addr of
+step (CESK (Var ident) e s@(Store ss _) k)
+  | Just addr <- Map.lookup ident e =
+    case ss ! addr of
         StVal v e' -> Right (CESK v e' s k)
         StThunk v e' -> Right (CESK v e' s (Kst addr k))
-    Nothing -> error ("unbound variable: " ++ showSDoc (ppr ident))
+    --Nothing -> error ("unbound variable: " ++ showSDoc (ppr ident))
 step (CESK (Lit _) e s k) = NOT_IMPL()
 step (CESK (App fn arg) e s k) =
   Right (CESK fn e s (Kar arg e k))
@@ -103,6 +103,6 @@ eval :: CoreExpr -> Val
 eval = eval' . inject
   where
     eval' :: CESK -> Val
-    eval' m = case step (unsafeLog m) of
-      Left v -> unsafeLog v
+    eval' m = case step (unsafeLog "\n-> " m) of
+      Left v -> unsafeLog "\n=> " v
       Right m' -> eval' m'
