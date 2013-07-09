@@ -9,10 +9,9 @@ dummy :: Int -> Int
 dummy n = let f x = x in f n
 
 data Foo = Bar
+         | Baz
 
-data Baz x = Quux [x]
-
-stupid = y (true true) Bar (2 + 2)
+stupid = y (true true) Bar Baz
   where
     id x = x
     y f = f (y f)

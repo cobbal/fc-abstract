@@ -11,6 +11,7 @@ import qualified Data.Map as Map
 import Data.Map ((!), Map, member)
 import Data.IORef
 import System.IO.Unsafe
+import Data.Char (ord, chr)
 
 instance OutputableBndr b => Show (Expr b) where
   show = showSDoc . ppr
@@ -18,38 +19,50 @@ instance OutputableBndr b => Show (Expr b) where
 unsafeLog :: Show a => String -> a -> a
 unsafeLog m x = unsafePerformIO (putStrLn (m ++ show x)) `seq` x
 
-counter :: IORef Int
-counter = unsafePerformIO $ do
-  putStrLn "MAKING A NEW IOREF"
-  newIORef 0
+newtype Addr = Addr Int
+             deriving (Ord, Eq)
+newtype KAddr = KAddr Int
+             deriving (Ord, Eq)
 
-genInt :: () -> Int
-genInt _ = unsafePerformIO $ do
-  modifyIORef counter (+1)
-  r <- readIORef counter
-  putStrLn ("gen -> " ++ show r)
-  return r
-{-# NOINLINE genInt #-}
+instance Show Addr where
+  show (Addr x) = "A" ++ show x
 
--- Value only types in here please
--- (not quite sure if that means anything in Haskell)
--- (TODO: figure that out)
-type Val = CoreExpr
+instance Show KAddr where
+  show (KAddr x) = "K" ++ show x
 
-type Addr = Int
-
-data Stored = StVal Val Env
-            | StThunk Val Env
-            deriving Show
+data Storable = StVal CoreExpr Env
+              | StThunk CoreExpr Env
+              deriving Show
 
 type Env = Map Var Addr
 
-data Store = Store (Map Addr Stored) Addr
+data Store = Store (Map Addr Storable) (Map KAddr Continuation) Int
            deriving Show
 
+mkStore :: Store
+mkStore = Store Map.empty Map.empty 0
+
+storeVal :: Store -> Storable -> (Addr, Store)
+storeVal (Store vm km nextA) v =
+  (Addr nextA, Store (Map.insert (Addr nextA) v vm) km (nextA + 1))
+
+storeKont :: Store -> Continuation -> (KAddr, Store)
+storeKont (Store vm km nextA) k =
+  (KAddr nextA, Store vm (Map.insert (KAddr nextA) k km) (nextA + 1))
+
+replaceVal :: Store -> Addr -> Storable -> Store
+replaceVal (Store vm km nextA) a v =
+  Store (Map.insert a v vm) km nextA
+
+lookupVal :: Store -> Addr -> Storable
+lookupVal (Store vm _ _) = (vm !)
+
+lookupKont :: Store -> KAddr -> Continuation
+lookupKont (Store _ km _) = (km !)
+
 data Continuation = Kmt
-                    | Kar CoreExpr Env Continuation
-                    | Kst Addr Continuation
+                    | Kar CoreExpr Env KAddr
+                    | Kst Addr KAddr
                       -- store result of thunk in place of variable
                     deriving Show
 
@@ -57,52 +70,62 @@ data CESK = CESK {
   control :: CoreExpr,
   env :: Env,
   store :: Store,
-  kont :: Continuation
+  kont :: KAddr
   } deriving Show
 
 inject :: CoreExpr -> CESK
-inject e = CESK e Map.empty (Store Map.empty 0) Kmt
+inject e = CESK e Map.empty s ka
+  where (ka, s) = storeKont mkStore Kmt
 
-step :: CESK -> Either Val CESK
+step :: CESK -> Either CoreExpr CESK
 --step (CESK c e s Kmt) = Left c
-step (CESK (Var ident) e s@(Store ss _) k)
-  | Just addr <- Map.lookup ident e =
-    case ss ! addr of
-        StVal v e' -> Right (CESK v e' s k)
-        StThunk v e' -> Right (CESK v e' s (Kst addr k))
-    --Nothing -> error ("unbound variable: " ++ showSDoc (ppr ident))
-step (CESK (Lit _) e s k) = NOT_IMPL()
-step (CESK (App fn arg) e s k) =
-  Right (CESK fn e s (Kar arg e k))
-step (CESK c e (Store ss maxAddr) (Kst addr k)) =
-  Right (CESK c e s' k)
-  where s' = Store (Map.insert addr (StVal c e) ss) maxAddr
-step (CESK (Lam formal body) e (Store ss addr) (Kar v e' k)) =
-  Right (CESK body e'' s' k)
+step (CESK c e s ka) =
+  stepk c e s (lookupKont s ka)
   where
-    e'' = Map.insert formal addr e
-    s' = Store (Map.insert addr (StThunk v e') ss) (addr + 1)
-step (CESK (Let (NonRec var val) expr) e s k) =
-  -- punt and desugar
-  Right (CESK (App (Lam var expr) val) e s k)
-step (CESK (Let (Rec binds) expr) e s@(Store ss addr) k) =
-  Right (CESK expr e' s' k)
-  where
-    addrsVarsVals = zip3 [addr..] (map fst binds) (map snd binds)
-    e' = foldl (\m (a, var, val) -> Map.insert var a m) e addrsVarsVals
-    s' = foldl (\(Store m _) (a, var, val) ->
-                 Store (Map.insert a (StThunk val e') m) (a + 1))
-         s addrsVarsVals
-step (CESK (Case _ _ _ _) e s k) = NOT_IMPL()
-step (CESK (Cast _ _) e s k) = NOT_IMPL()
-step (CESK (Type _) e s k) = NOT_IMPL()
-step (CESK (Coercion _) e s k) = NOT_IMPL()
-step (CESK c _ _ Kmt) = Left c
+    stepk :: CoreExpr -> Env -> Store -> Continuation
+             -> Either CoreExpr CESK
+    stepk (Var ident) e s k
+      | Just addr <- Map.lookup ident e =
+        case lookupVal s addr of
+          StVal v e' -> Right (CESK v e' s ka)
+          StThunk v e' ->
+            let (thunkKa, thunkS) = storeKont s (Kst addr ka) in
+            Right (CESK v e' thunkS thunkKa)
+    stepk (Lit _) e s k = NOT_IMPL()
+    stepk (App fn arg) e s k =
+      Right (CESK fn e thunkS thunkKa)
+      where
+        (thunkKa, thunkS) = storeKont s (Kar arg e ka)
+    stepk c e s (Kst addr ka') =
+        Right (CESK c e s' ka')
+      where
+        (addr, s') = storeVal s (StVal c e)
+    stepk (Lam formal body) e s (Kar v e' ka') =
+        let (addr, s') = storeVal s (StThunk v e')
+            e'' = Map.insert formal addr e in
+        Right (CESK body e'' s' ka')
+    stepk (Let (NonRec var val) expr) e s k =
+      -- punt and desugar
+      stepk (App (Lam var expr) val) e s k
+    stepk (Let (Rec binds) expr) e s k =
+      Right (CESK expr e' s' ka)
+      where
+        (s', varAddrs) = foldl storeBind (s, []) binds
+        storeBind :: (Store, [(Addr, Var)]) -> (Var, CoreExpr)
+                     -> (Store, [(Addr, Var)])
+        storeBind (s, as) (var, val) = (s', (a, var) : as)
+          where (a, s') = storeVal s (StThunk val e')
+        e' = foldl (\m (a, var) -> Map.insert var a m) e varAddrs
+    stepk (Case _ _ _ _) e s k = NOT_IMPL()
+    stepk (Cast _ _) e s k = NOT_IMPL()
+    stepk (Type _) e s k = NOT_IMPL()
+    stepk (Coercion _) e s k = NOT_IMPL()
+    stepk c _ _ Kmt = Left c
 
-eval :: CoreExpr -> Val
+eval :: CoreExpr -> CoreExpr
 eval = eval' . inject
   where
-    eval' :: CESK -> Val
+    eval' :: CESK -> CoreExpr
     eval' m = case step (unsafeLog "\n-> " m) of
       Left v -> unsafeLog "\n=> " v
       Right m' -> eval' m'
