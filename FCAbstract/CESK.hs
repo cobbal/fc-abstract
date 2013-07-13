@@ -126,6 +126,6 @@ eval :: CoreExpr -> CoreExpr
 eval = eval' . inject
   where
     eval' :: CESK -> CoreExpr
-    eval' m = case step (unsafeLog "\n-> " m) of
-      Left v -> unsafeLog "\n=> " v
+    eval' m = case step (unsafeLog "\n--> " m) of
+      Left v -> unsafeLog "\n==> " v
       Right m' -> eval' m'

@@ -1,23 +1,18 @@
 module Main where
 
-fib :: Int -> Int
-fib 0 = 1
-fib 1 = 1
-fib n = fib (n - 1) + fib (n - 2)
-
-dummy :: Int -> Int
-dummy n = let f x = x in f n
-
 data Foo = Bar
          | Baz
 
-stupid = y (true true) Bar Baz
-  where
-    id x = x
-    y f = f (y f)
-    true a b = a
-    false a b = b
-    not m = m false true
+y f = f (y f)
+true a b = a
+false a b = b
+not m = m false true
 
-main :: IO ()
-main = putStrLn (show (fib (dummy 10)))
+-- type Boolean a = a -> a -> a
+-- and :: Boolean a -> Boolean a -> Boolean a
+and_ x y = x y false
+or_ x y = x true y
+
+stupid = y ((or_ false true) true) Bar Baz
+
+main = return ()
