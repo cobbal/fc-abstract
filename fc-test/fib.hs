@@ -2,6 +2,7 @@ module Main where
 
 data Foo = Bar
          | Baz
+         deriving Show
 
 y f = f (y f)
 true a b = a
