@@ -2,9 +2,11 @@
 {-# LANGUAGE PatternGuards #-}
 {-# OPTIONS_GHC -fno-cse -O0 #-}
 
--- #define NOT_IMPL() (error ("Not implemented error at " ++ __FILE__ ++ ":" ++ show __LINE__))
-
+#if 0
+#define NOT_IMPL() (error ("Not implemented error at " ++ __FILE__ ++ ":" ++ show __LINE__))
+#else
 #define NOT_IMPL() ([])
+#endif
 
 module FCAbstract.CESK where
 
@@ -17,7 +19,7 @@ import Data.Char (ord, chr)
 import Data.Either (partitionEithers)
 
 instance OutputableBndr b => Show (Expr b) where
-  show = showSDoc . ppr
+  show = showSDoc tracingDynFlags . ppr
 
 unsafeLog :: Show a => String -> a -> a
 unsafeLog m x = unsafePerformIO (putStrLn (m ++ show x)) `seq` x
@@ -32,6 +34,9 @@ instance Show Addr where
 
 instance Show KAddr where
   show (KAddr x) = "K" ++ show x
+
+instance Show Var where
+  show = showSDoc tracingDynFlags . ppr
 
 data Storable = StVal CoreExpr Env
               | StThunk CoreExpr Env
@@ -51,8 +56,17 @@ instance Show Store where
            "}, sKonts = {" ++ show (Map.assocs (sKonts s)) ++
            "}, sNextAddr = " ++ show (sNextAddr s) ++ "}"
 
+data MachineSize = Finite Int Int -- memory and time
+                | Infinite
+
+finiteness :: MachineSize
+-- finiteness = Finite 50 70
+finiteness = Infinite
+
 mkStore :: Store
-mkStore = Store Map.empty Map.empty 0 (flip mod 12)
+mkStore = Store Map.empty Map.empty 0 (case finiteness of
+                                          Finite m t -> flip mod m
+                                          Infinite -> id)
 
 storeVal :: Store -> Storable -> (Addr, Store)
 storeVal (Store vm km nextA c) v =
@@ -110,7 +124,7 @@ step :: CESK -> ([CoreExpr], [CESK])
 --step (CESK c e s Kmt) = Left c
 step (CESK c e s ka) =
   partitionEithers (concat (map (stepk c e s) (lookupKont s ka)))
-  where
+ where
     stepk :: CoreExpr -> Env -> Store -> Continuation
              -> [Either CoreExpr CESK]
     stepk (Var ident) e s k
@@ -154,11 +168,13 @@ step (CESK c e s ka) =
     stepk c e s k = []
 
 eval :: CoreExpr -> [CoreExpr]
-eval = eval' 20 . inject
+eval = eval' (case finiteness of
+                 Finite m t -> Just t
+                 Infinite -> Nothing) . inject
   where
-    eval' :: Int -> CESK -> [CoreExpr]
-    eval' 0 _ = []
+    eval' :: Maybe Int -> CESK -> [CoreExpr]
+    eval' (Just 0) _ = []
     eval' n m =
       case step m of
         (vs, []) -> vs
-        (vs, ms) -> vs ++ (ms >>= eval' (n - 1))
+        (vs, ms) -> vs ++ (ms >>= eval' (fmap (subtract 1) n))

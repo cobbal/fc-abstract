@@ -16,7 +16,7 @@ install _ todo = do
   return (CoreDoPluginPass "Say name" pass : todo)
 
 pprs :: Outputable a => a -> String
-pprs = showSDoc . ppr
+pprs = showSDoc tracingDynFlags . ppr
 
 pass :: ModGuts -> CoreM ModGuts
 pass guts = do
